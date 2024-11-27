@@ -11,17 +11,7 @@ class ElectionCrawler:
     def __init__(self, start_url="https://www.nj.gov/state/elections/election-information-results.shtml", rate_limit=1):
         self.start_url = start_url
         self.rate_limit = rate_limit
-        self.visited_urls = set()
-        self.pdf_urls = set()
-        self.running = False
-        self.paused = False
-        self.stats = {
-            "pages_crawled": 0,
-            "pdfs_found": 0,
-            "pdfs_downloaded": 0,
-            "current_url": "",
-            "status": "stopped"
-        }
+        self.reset_state()
         
         # Setup logging
         log_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'logs')
@@ -42,16 +32,37 @@ class ElectionCrawler:
         self.pdf_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'pdfs')
         os.makedirs(self.pdf_dir, exist_ok=True)
 
+    def reset_state(self):
+        """Reset all crawler state variables to their initial values."""
+        self.running = False
+        self.paused = False
+        self.visited_urls = set()
+        self.pdf_urls = set()
+        self.link_tree = {
+            "nodes": [],
+            "links": []
+        }
+        self.pdf_states = {}  # Tracks states: "queued", "downloaded", "failed"
+        self.stats = {
+            "pages_crawled": 0,
+            "pdfs_found": 0,
+            "pdfs_downloaded": 0,
+            "current_url": "",
+            "status": "stopped"
+        }
+
     async def download_pdf(self, url, session):
         try:
-            # Create year directory if it's a year-specific PDF
+            # Extract year from URL
             year_match = re.search(r'(\d{4})', url)
-            if year_match:
-                year = year_match.group(1)
-                year_dir = os.path.join(self.pdf_dir, year)
-                os.makedirs(year_dir, exist_ok=True)
-            else:
-                year_dir = self.pdf_dir
+            if not year_match:
+                self.logger.warning(f"Could not extract year from URL: {url}")
+                self.pdf_states[url] = "failed"
+                return
+
+            year = year_match.group(1)
+            year_dir = os.path.join(self.pdf_dir, year)
+            os.makedirs(year_dir, exist_ok=True)
 
             # Extract filename from URL
             filename = os.path.basename(urlparse(url).path)
@@ -62,9 +73,7 @@ class ElectionCrawler:
 
             # Skip if already downloaded
             if os.path.exists(filepath):
-                self.logger.info(f"Skipping existing PDF: {filepath}")
-                # Still count it in stats since we found it
-                self.stats["pdfs_found"] += 1
+                self.pdf_states[url] = "downloaded"
                 return
 
             async with session.get(url) as response:
@@ -73,11 +82,13 @@ class ElectionCrawler:
                     with open(filepath, 'wb') as f:
                         f.write(content)
                     self.stats["pdfs_downloaded"] += 1
-                    self.stats["pdfs_found"] += 1
+                    self.pdf_states[url] = "downloaded"
                     self.logger.info(f"Successfully downloaded PDF: {filepath}")
                 else:
+                    self.pdf_states[url] = "failed"
                     self.logger.error(f"Failed to download PDF {url}: Status {response.status}")
         except Exception as e:
+            self.pdf_states[url] = "failed"
             self.logger.error(f"Error downloading PDF {url}: {str(e)}")
 
     async def fetch_page(self, url, session):
@@ -105,24 +116,54 @@ class ElectionCrawler:
                     # Convert relative URLs to absolute URLs
                     full_url = urljoin(base_url, href)
                     
+                    # Skip if we've already seen this URL
+                    if full_url in self.visited_urls:
+                        continue
+                    
+                    # Add node to link tree if not exists
+                    if not any(node["id"] == full_url for node in self.link_tree["nodes"]):
+                        node_type = "pdf" if href.endswith('.pdf') else "page"
+                        self.link_tree["nodes"].append({
+                            "id": full_url,
+                            "type": node_type,
+                            "name": os.path.basename(urlparse(full_url).path)
+                        })
+                        # Add link from current page to this node
+                        self.link_tree["links"].append({
+                            "source": base_url,
+                            "target": full_url
+                        })
+                    
                     if href.endswith('.pdf'):
-                        # Direct PDF link
-                        self.pdf_urls.add(full_url)
-                        self.stats["pdfs_found"] += 1
-                        self.logger.info(f"Found PDF: {full_url}")
+                        if any(term in href.lower() for term in ['-general-election', '-primary-election']):
+                            if full_url not in self.pdf_urls:
+                                self.pdf_urls.add(full_url)
+                                self.pdf_states[full_url] = "queued"
+                                self.stats["pdfs_found"] += 1
+                                self.logger.info(f"Found election PDF: {full_url}")
                     elif href.endswith('.shtml'):
-                        # Election year page
-                        links.add(full_url)
-                        
+                        if 'election' in href.lower():
+                            links.add(full_url)
+                            self.logger.info(f"Found election page: {full_url}")
+        
         return links
 
     async def crawl_url(self, url, session):
         if url in self.visited_urls or not self.running or self.paused:
             return
 
+        # Mark as visited before processing to prevent duplicate processing
         self.visited_urls.add(url)
         self.stats["current_url"] = url
         self.stats["pages_crawled"] += 1
+        
+        # Add the current URL to the link tree if not exists
+        if not any(node["id"] == url for node in self.link_tree["nodes"]):
+            self.link_tree["nodes"].append({
+                "id": url,
+                "type": "page",
+                "name": os.path.basename(urlparse(url).path)
+            })
         
         self.logger.info(f"Crawling: {url}")
         
@@ -130,35 +171,38 @@ class ElectionCrawler:
         if html:
             links = self.extract_links(html, url)
             
-            # Download any PDFs found on this page
-            pdf_tasks = []
-            for pdf_url in self.pdf_urls - set(p for p, _ in pdf_tasks):
+            # Process PDFs found on this page
+            new_pdfs = self.pdf_urls - set(self.visited_urls)
+            for pdf_url in new_pdfs:
                 if self.running and not self.paused:
                     await asyncio.sleep(self.rate_limit)
-                    pdf_tasks.append(asyncio.create_task(self.download_pdf(pdf_url, session)))
+                    await self.download_pdf(pdf_url, session)
+                    self.visited_urls.add(pdf_url)
             
-            # Process each link
+            # Process each new link (only if it's not a PDF and not visited)
             for link in links:
-                if self.running and not self.paused and link not in self.visited_urls:
-                    await asyncio.sleep(self.rate_limit)  # Rate limiting
+                if (self.running and not self.paused and 
+                    link not in self.visited_urls and 
+                    not link.endswith('.pdf')):
+                    await asyncio.sleep(self.rate_limit)
                     await self.crawl_url(link, session)
-            
-            # Wait for PDF downloads to complete
-            if pdf_tasks:
-                await asyncio.gather(*pdf_tasks)
 
     async def start(self):
+        """Start the crawler with a fresh state."""
         if not self.running:
+            self.reset_state()  # Reset state before starting
             self.running = True
             self.stats["status"] = "running"
-            self.logger.info("Crawler started")
-            
-            async with aiohttp.ClientSession() as session:
-                await self.crawl_url(self.start_url, session)
-            
-            self.running = False
-            self.stats["status"] = "stopped"
-            self.logger.info("Crawler finished")
+            self.logger.info("Starting crawler")
+            try:
+                async with aiohttp.ClientSession() as session:
+                    await self.crawl_url(self.start_url, session)
+            except Exception as e:
+                self.logger.error(f"Error in crawler: {str(e)}")
+            finally:
+                self.running = False
+                self.stats["status"] = "stopped"
+                self.logger.info("Crawler stopped")
 
     def stop(self):
         self.running = False
@@ -186,7 +230,9 @@ class ElectionCrawler:
     def get_results(self):
         return {
             "visited_urls": list(self.visited_urls),
-            "pdf_urls": list(self.pdf_urls)
+            "pdf_urls": list(self.pdf_urls),
+            "link_tree": self.link_tree,
+            "pdf_states": self.pdf_states
         }
 
 # Create crawler instance

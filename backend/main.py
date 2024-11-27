@@ -1,23 +1,15 @@
 from fastapi import FastAPI, WebSocket
-from fastapi.middleware.cors import CORSMiddleware
 import asyncio
 import json
 import os
 from crawler import ElectionCrawler
 import aiohttp
 import logging
+from logging import LogRecord
+from datetime import datetime
+import pytz
 
 app = FastAPI()
-
-# CORS configuration
-frontend_url = os.getenv("FRONTEND_URL", "http://localhost:8080")
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[frontend_url],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 # Create crawler instance
 crawler = ElectionCrawler()
@@ -26,58 +18,73 @@ crawler = ElectionCrawler()
 active_connections = []
 
 # Custom WebSocket logging handler
-class WebSocketLoggingHandler(logging.Handler):
+class LogHandler(logging.Handler):
     def __init__(self):
         super().__init__()
-        self.connections = []
-        self.formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s')
+        self.eastern = pytz.timezone('America/New_York')
+        self.formatter = logging.Formatter('%(message)s')
+
+    def format(self, record):
+        # Convert timestamp to Eastern Time
+        created = datetime.fromtimestamp(record.created)
+        eastern_time = created.astimezone(self.eastern)
+        record.asctime = eastern_time.strftime('%Y-%m-%d %H:%M:%S %Z')
+        return f"{record.asctime} [{record.levelname}] {record.getMessage()}"
 
     def emit(self, record: LogRecord):
         try:
-            log_entry = self.formatter.format(record)
-            asyncio.create_task(self.broadcast_log(log_entry))
-        except Exception as e:
-            print(f"Error in WebSocket logging handler: {e}")
+            msg = self.format(record)
+            asyncio.create_task(broadcast_log(msg))
+        except Exception:
+            self.handleError(record)
 
-    async def broadcast_log(self, log_entry: str):
-        for connection in self.connections:
-            try:
-                await connection.send_json({
-                    "type": "log",
-                    "data": log_entry
-                })
-            except:
-                if connection in self.connections:
-                    self.connections.remove(connection)
-
-# Create WebSocket logging handler
-ws_handler = WebSocketLoggingHandler()
-logging.getLogger().addHandler(ws_handler)
-logging.getLogger("crawler").addHandler(ws_handler)
+async def broadcast_log(message):
+    if len(active_connections) > 0:
+        for connection in active_connections:
+            await connection.send_json({
+                "type": "log",
+                "message": message
+            })
 
 async def broadcast_stats():
     while True:
-        if active_connections:
+        if active_connections:  # Only broadcast if there are active connections
             stats = crawler.get_stats()
             for connection in active_connections:
                 try:
-                    await connection.send_json(stats)
-                except:
-                    active_connections.remove(connection)
+                    await connection.send_json({
+                        "type": "stats",
+                        "stats": {
+                            "status": stats["status"],
+                            "pages_crawled": stats["pages_crawled"],
+                            "pdfs_found": stats["pdfs_found"],
+                            "pdfs_downloaded": stats["pdfs_downloaded"],
+                            "current_url": stats["current_url"],
+                            "link_tree": stats["link_tree"]
+                        }
+                    })
+                except Exception as e:
+                    print(f"Error broadcasting stats: {e}")
+                    if connection in active_connections:
+                        active_connections.remove(connection)
         await asyncio.sleep(1)
+
+# Create WebSocket logging handler
+ws_handler = LogHandler()
+logging.getLogger("crawler").addHandler(ws_handler)
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     active_connections.append(websocket)
-    ws_handler.connections.append(websocket)
     try:
         while True:
             await websocket.receive_text()
-    except:
-        active_connections.remove(websocket)
-        if websocket in ws_handler.connections:
-            ws_handler.connections.remove(websocket)
+    except Exception as e:
+        print(f"WebSocket error: {e}")
+    finally:
+        if websocket in active_connections:
+            active_connections.remove(websocket)
 
 @app.post("/start")
 async def start_crawler():
@@ -94,7 +101,7 @@ async def stop_crawler():
 async def pause_crawler():
     if crawler.paused:
         crawler.resume()
-        return {"status": "running"}
+        return {"status": "resumed"}
     else:
         crawler.pause()
         return {"status": "paused"}

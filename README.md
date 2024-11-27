@@ -32,49 +32,29 @@ docker-compose up --build
 3. Access the web interface:
 - Open your browser and navigate to `http://localhost:8080`
 
-## Manual Installation (Development)
-
-If you prefer to run without Docker, you'll need:
-- Python 3.7+
-- Node.js (for serving the frontend)
-
-1. Install Python dependencies:
-```bash
-cd backend
-pip install -r requirements.txt
-```
-
-2. Start the backend server:
-```bash
-python main.py
-```
-
-3. Open the frontend:
-- Navigate to the `frontend` directory
-- Open `index.html` in a web browser
-
 ## Usage
 
-1. Open the web interface in your browser
-2. Use the control panel to:
-   - Start the crawler
-   - Stop the crawler
-   - Pause/Resume crawling
-   - Adjust the rate limit
-3. Monitor the crawling progress through:
-   - Real-time statistics
-   - Crawler log
-   - Current URL display
+The application runs as a set of Docker containers:
 
-## Configuration
+1. Build and start the containers:
+   ```bash
+   docker-compose up --build
+   ```
 
-The application can be configured using environment variables:
+2. The application will be available at the following URLs:
+   - Frontend: `http://<your-host>:8080`
+   - Backend API: `http://<your-host>:8000`
 
-### Backend Environment Variables
+## Environment Variables
+
+### Backend Service
+- `ALLOWED_ORIGINS`: Allowed CORS origins (default: http://frontend:80)
+- `ALLOWED_METHODS`: Allowed HTTP methods (default: *)
+- `ALLOWED_HEADERS`: Allowed HTTP headers (default: *)
 - `FRONTEND_URL`: URL of the frontend service (default: http://localhost:8080)
 
-### Frontend Environment Variables
-- `API_URL`: URL of the backend API service (default: http://localhost:8000)
+### Frontend Service
+- `API_URL`: URL of the backend API service (default: http://backend:8000)
 
 Other configurations:
 - Default rate limit: 1 second between requests

@@ -1,113 +1,144 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>NJ Elections Web Crawler</title>
-    <script src="config.js"></script>
-    <script src="main.js"></script>
+    <title>NJ Election Results Crawler</title>
     <style>
         body {
             font-family: Arial, sans-serif;
-            max-width: 800px;
+            margin: 20px;
+            background-color: #f5f5f5;
+            max-width: 1200px;
             margin: 0 auto;
             padding: 20px;
-            background-color: #f5f5f5;
         }
-        .container {
-            background-color: white;
+        .section {
+            background: white;
             padding: 20px;
             border-radius: 8px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        .controls {
             margin-bottom: 20px;
-            padding: 15px;
-            background-color: #f8f9fa;
-            border-radius: 4px;
-        }
-        .stats {
-            margin-top: 20px;
-            padding: 15px;
-            background-color: #e9ecef;
-            border-radius: 4px;
         }
         button {
+            margin: 5px;
             padding: 8px 16px;
-            margin-right: 10px;
             border: none;
             border-radius: 4px;
-            cursor: pointer;
             background-color: #007bff;
             color: white;
+            cursor: pointer;
         }
-        button:disabled {
-            background-color: #6c757d;
-            cursor: not-allowed;
-        }
-        button:hover:not(:disabled) {
+        button:hover {
             background-color: #0056b3;
         }
-        input {
-            padding: 6px;
-            border: 1px solid #ced4da;
-            border-radius: 4px;
-            margin-right: 10px;
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
         }
-        .stat-item {
-            margin: 10px 0;
+        #visualization {
+            height: 500px;
+            width: 100%;
+            overflow: hidden;
         }
-        .current-url {
-            word-break: break-all;
-            margin-top: 10px;
-            padding: 10px;
-            background-color: #f8f9fa;
-            border-radius: 4px;
+        #tree-container {
+            width: 100%;
+            height: 100%;
         }
-        .log-container {
-            margin-top: 20px;
-            padding: 15px;
-            background-color: #1e1e1e;
-            border-radius: 4px;
-            color: #fff;
+        .node circle {
+            stroke: #fff;
+            stroke-width: 1.5px;
+        }
+        .node text {
+            font-size: 10px;
+        }
+        .link {
+            stroke: #999;
+            stroke-opacity: 0.6;
+            stroke-width: 1px;
+        }
+        #log-container {
             height: 300px;
             overflow-y: auto;
+            background-color: #f8f9fa;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            margin-top: 10px;
         }
         .log-entry {
-            font-family: monospace;
             margin: 2px 0;
             white-space: pre-wrap;
             word-wrap: break-word;
+            font-size: 12px;
+            line-height: 1.4;
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .stat-item {
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 4px;
         }
     </style>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="config.js"></script>
 </head>
 <body>
-    <div class="container">
-        <h1>NJ Elections Web Crawler</h1>
-        
+    <div class="section">
+        <h2>NJ Election Results Crawler</h2>
         <div class="controls">
-            <h2>Controls</h2>
-            <button id="startBtn">Start</button>
-            <button id="stopBtn">Stop</button>
-            <button id="pauseBtn">Pause</button>
-            <div style="margin-top: 10px;">
-                <label for="rateLimit">Rate Limit (seconds):</label>
-                <input type="number" id="rateLimit" value="1" min="0" step="0.1">
+            <div class="url-input">
+                <label for="startUrl">Starting URL:</label>
+                <input type="text" id="startUrl" value="https://www.nj.gov/state/elections/election-information-results.shtml" 
+                    placeholder="Enter starting URL" style="width: 500px;">
+            </div>
+            <div class="buttons">
+                <button id="startBtn">Start Crawler</button>
+                <button id="stopBtn" disabled>Stop Crawler</button>
+                <button id="pauseBtn">Pause</button>
+                <button id="resetBtn">Reset</button>
             </div>
         </div>
+    </div>
 
-        <div class="stats">
-            <h2>Crawler Statistics</h2>
-            <p>Status: <span id="status">Stopped</span></p>
-            <p>Pages Crawled: <span id="pagesCrawled">0</span></p>
-            <p>PDFs Found: <span id="pdfsFound">0</span></p>
-            <p>PDFs Downloaded: <span id="pdfsDownloaded">0</span></p>
-            <p>Current URL: <span id="currentUrl">None</span></p>
+    <div class="section">
+        <h2>Crawler Statistics</h2>
+        <div class="stats-grid">
+            <div class="stat-item">
+                <strong>Status:</strong> <span id="status">Stopped</span>
+            </div>
+            <div class="stat-item">
+                <strong>Pages Crawled:</strong> <span id="pagesCrawled">0</span>
+            </div>
+            <div class="stat-item">
+                <strong>PDFs Found:</strong> <span id="pdfsFound">0</span>
+            </div>
+            <div class="stat-item">
+                <strong>PDFs Downloaded:</strong> <span id="pdfsDownloaded">0</span>
+            </div>
+            <div class="stat-item">
+                <strong>Current URL:</strong> <span id="currentUrl">None</span>
+            </div>
         </div>
-        
-        <div class="log-container" id="logContainer">
+    </div>
+
+    <div class="section">
+        <h2>Link Tree Visualization</h2>
+        <div id="visualization">
+            <div id="tree-container"></div>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>Crawler Logs</h2>
+        <div id="log-container">
             <div id="logEntries"></div>
         </div>
     </div>
+
+    <script src="main.js"></script>
 </body>
 </html>

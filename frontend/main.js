@@ -1,172 +1,317 @@
-// Wait for the DOM to be fully loaded
-document.addEventListener('DOMContentLoaded', () => {
-    // DOM Elements
-    const startBtn = document.getElementById('startBtn');
-    const stopBtn = document.getElementById('stopBtn');
-    const pauseBtn = document.getElementById('pauseBtn');
-    const rateLimitInput = document.getElementById('rateLimit');
-    const statusDisplay = document.getElementById('status');
-    const pagesCrawledDisplay = document.getElementById('pagesCrawled');
-    const pdfsFoundDisplay = document.getElementById('pdfsFound');
-    const pdfsDownloadedDisplay = document.getElementById('pdfsDownloaded');
-    const currentUrlDisplay = document.getElementById('currentUrl');
-    const logContainer = document.getElementById('logContainer');
-    const logEntries = document.getElementById('logEntries');
+let ws;
+let isRunning = false;
+let isPaused = false;
 
-    // API Configuration
-    const API_BASE_URL = window.APP_CONFIG?.API_BASE_URL || 'http://localhost:8000';
-    const WS_URL = API_BASE_URL.replace('http', 'ws') + '/ws';
+// Tree visualization state
+let treeData = { nodes: [], links: [] };
+let root = null;
 
-    let ws = null;
-    let reconnectAttempts = 0;
-    const MAX_RECONNECT_ATTEMPTS = 5;
-
-    // Maximum number of log entries to keep
-    const MAX_LOG_ENTRIES = 1000;
-
-    // WebSocket Connection
-    function connectWebSocket() {
-        if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-            console.error('Max reconnection attempts reached');
-            return;
+function processDataForTree(data) {
+    // Create a map of all nodes
+    const nodesMap = new Map(data.nodes.map(node => [node.id, { ...node, children: [] }]));
+    
+    // Build parent-child relationships
+    data.links.forEach(link => {
+        const source = nodesMap.get(link.source);
+        const target = nodesMap.get(link.target);
+        if (source && target) {
+            source.children.push(target);
         }
+    });
+    
+    // Find the root node (the one with no incoming links)
+    const targetIds = new Set(data.links.map(link => link.target));
+    const rootNode = Array.from(nodesMap.values()).find(node => !targetIds.has(node.id));
+    
+    return rootNode || { id: "No Data", name: "No Data", children: [] };
+}
 
-        ws = new WebSocket(WS_URL);
+function initVisualization() {
+    // Clear existing visualization
+    d3.select("#tree-container").selectAll("*").remove();
+}
 
-        ws.onopen = () => {
-            console.log('WebSocket connected');
-            reconnectAttempts = 0;
+function createNode(d, isRoot = false, level = 0) {
+    const node = document.createElement("div");
+    node.className = "node";
+    if (isRoot) {
+        node.classList.add("root");
+    }
+    
+    const content = document.createElement("div");
+    content.className = "node-content";
+    
+    if (d.children?.length) {
+        const toggle = document.createElement("span");
+        toggle.className = "node-toggle";
+        toggle.textContent = "+";
+        toggle.onclick = (e) => {
+            e.stopPropagation();
+            const nodeElement = e.target.closest(".node");
+            const childrenContainer = nodeElement.querySelector(".node-children");
+            if (childrenContainer) {
+                const isExpanded = nodeElement.classList.toggle("expanded");
+                e.target.textContent = isExpanded ? "−" : "+";
+            }
+        };
+        content.appendChild(toggle);
+    } else {
+        // Add empty toggle space for alignment
+        const spacer = document.createElement("span");
+        spacer.className = "node-toggle";
+        spacer.style.visibility = "hidden";
+        content.appendChild(spacer);
+    }
+    
+    const label = document.createElement("span");
+    label.className = "node-label";
+    if (isRoot) {
+        label.textContent = d.id;
+        label.classList.add("root-label");
+    } else {
+        try {
+            const url = new URL(d.id);
+            let displayName = url.pathname;
+            displayName = displayName.replace(/\/$/, "");
+            displayName = displayName.split('/').pop();
+            displayName = decodeURIComponent(displayName);
+            if (!displayName) {
+                displayName = url.hostname;
+            }
+            label.textContent = displayName;
+            label.title = d.id;
+        } catch (e) {
+            label.textContent = d.name || d.id;
+        }
+    }
+    
+    const type = document.createElement("span");
+    type.className = `node-type ${d.type}`;
+    if (d.type === 'pdf') {
+        type.textContent = 'PDF';
+    }
+    
+    content.appendChild(label);
+    content.appendChild(type);
+    node.appendChild(content);
+    
+    if (d.children?.length) {
+        const childrenContainer = document.createElement("div");
+        childrenContainer.className = "node-children";
+        d.children.forEach(child => {
+            childrenContainer.appendChild(createNode(child, false));
+        });
+        node.appendChild(childrenContainer);
+    }
+    
+    return node;
+}
+
+function updateVisualization(data) {
+    if (!data.nodes.length) return;
+    
+    // Process the data into a hierarchical structure
+    root = processDataForTree(data);
+    
+    // Clear and initialize the container
+    const container = d3.select("#tree-container");
+    container.selectAll("*").remove();
+    
+    // Create a wrapper for the tree content
+    const wrapper = container.append("div")
+        .attr("class", "tree-wrapper");
+    
+    // Create and append the tree structure, passing isRoot=true for the root node
+    wrapper.node().appendChild(createNode(root, true));
+}
+
+function connectWebSocket() {
+    try {
+        const wsUrl = window.APP_CONFIG.WS_BASE_URL.replace('http://', 'ws://').replace('https://', 'wss://') + '/ws';
+        console.log('Connecting to WebSocket:', wsUrl);
+        ws = new WebSocket(wsUrl);
+        
+        ws.onopen = function() {
+            console.log('WebSocket connection established');
+            addLogEntry('Connected to server');
         };
 
-        ws.onmessage = (event) => {
+        ws.onmessage = function(event) {
             const data = JSON.parse(event.data);
-            if (data.type === 'log') {
-                addLogEntry(data.data);
-            } else {
-                updateStats(data);
+            if (data.type === 'stats') {
+                updateStats(data.stats);
+                if (data.stats.link_tree) {
+                    updateVisualization(data.stats.link_tree);
+                }
+            } else if (data.type === 'log') {
+                addLogEntry(data.message);
             }
         };
 
-        ws.onclose = () => {
-            console.log('WebSocket disconnected');
-            setTimeout(() => {
-                reconnectAttempts++;
-                connectWebSocket();
-            }, 2000);
+        ws.onclose = function(event) {
+            console.log('WebSocket connection closed:', event.code, event.reason);
+            addLogEntry(`Disconnected from server (code: ${event.code})`);
+            // Attempt to reconnect after a delay
+            setTimeout(connectWebSocket, 5000);
         };
 
-        ws.onerror = (error) => {
+        ws.onerror = function(error) {
             console.error('WebSocket error:', error);
+            addLogEntry(`WebSocket error: ${error.message || 'Connection failed'}`);
         };
+    } catch (error) {
+        console.error('Error connecting to WebSocket:', error);
+        addLogEntry(`Error connecting to WebSocket: ${error.message}`);
+        // Attempt to reconnect after a delay
+        setTimeout(connectWebSocket, 5000);
     }
+}
 
-    // Update UI with crawler stats
-    function updateStats(data) {
-        pagesCrawledDisplay.textContent = data.pages_crawled;
-        pdfsFoundDisplay.textContent = data.pdfs_found;
-        pdfsDownloadedDisplay.textContent = data.pdfs_downloaded || 0;
-        currentUrlDisplay.textContent = data.current_url || 'Not crawling';
-        statusDisplay.textContent = data.status;
+function updateStats(stats) {
+    document.getElementById('status').textContent = stats.status;
+    document.getElementById('pagesCrawled').textContent = stats.pages_crawled;
+    document.getElementById('pdfsFound').textContent = stats.pdfs_found;
+    document.getElementById('pdfsDownloaded').textContent = stats.pdfs_downloaded;
+    document.getElementById('currentUrl').textContent = stats.current_url || 'None';
+}
 
-        // Update button states
-        updateButtonStates(data.status);
+function updateButtonStates(status) {
+    const startBtn = document.getElementById('startBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    const pauseBtn = document.getElementById('pauseBtn');
+
+    startBtn.disabled = status === 'running' || status === 'paused';
+    stopBtn.disabled = status === 'stopped';
+    pauseBtn.disabled = status === 'stopped';
+
+    // Update pause button text
+    if (status === 'paused') {
+        pauseBtn.textContent = 'Resume';
+        isPaused = true;
+    } else {
+        pauseBtn.textContent = 'Pause';
+        isPaused = false;
     }
+}
 
-    // Update button states based on crawler status
-    function updateButtonStates(status) {
-        startBtn.disabled = status === 'running';
-        stopBtn.disabled = status === 'stopped';
-        pauseBtn.disabled = status === 'stopped';
-        
-        // Update pause button text
-        if (status === 'paused') {
-            pauseBtn.textContent = 'Resume';
-        } else {
-            pauseBtn.textContent = 'Pause';
-        }
+function addLogEntry(message) {
+    const logContainer = document.getElementById('logEntries');
+    const entry = document.createElement('div');
+    entry.className = 'log-entry';
+    
+    // If the message doesn't already have a timestamp (from backend),
+    // add one in Eastern Time
+    if (!message.match(/^\d{4}-\d{2}-\d{2}/)) {
+        const now = new Date();
+        const eastern = new Intl.DateTimeFormat('en-US', {
+            timeZone: 'America/New_York',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            timeZoneName: 'short'
+        }).format(now);
+        message = `${eastern} [INFO] ${message}`;
     }
+    
+    entry.textContent = message;
+    logContainer.appendChild(entry);
+    logContainer.scrollTop = logContainer.scrollHeight;
+}
 
-    function addLogEntry(logMessage) {
-        const entry = document.createElement('div');
-        entry.className = 'log-entry';
-        entry.textContent = logMessage;
-        
-        logEntries.appendChild(entry);
-        
-        // Remove old entries if we exceed the maximum
-        while (logEntries.children.length > MAX_LOG_ENTRIES) {
-            logEntries.removeChild(logEntries.firstChild);
-        }
-        
-        // Auto-scroll to bottom
-        logContainer.scrollTop = logContainer.scrollHeight;
-    }
-
-    // API Calls
-    async function startCrawler() {
+// Initialize event listeners when DOM is loaded
+document.addEventListener('DOMContentLoaded', function() {
+    // Start button
+    document.getElementById('startBtn').onclick = async function() {
         try {
-            const response = await fetch(`${API_BASE_URL}/start`, {
-                method: 'POST'
-            });
-            const data = await response.json();
-            console.log('Crawler started:', data);
-        } catch (error) {
-            console.error('Error starting crawler:', error);
-        }
-    }
-
-    async function stopCrawler() {
-        try {
-            const response = await fetch(`${API_BASE_URL}/stop`, {
-                method: 'POST'
-            });
-            const data = await response.json();
-            console.log('Crawler stopped:', data);
-        } catch (error) {
-            console.error('Error stopping crawler:', error);
-        }
-    }
-
-    async function togglePause() {
-        try {
-            const response = await fetch(`${API_BASE_URL}/pause`, {
-                method: 'POST'
-            });
-            const data = await response.json();
-            console.log('Crawler pause toggled:', data);
-        } catch (error) {
-            console.error('Error toggling pause:', error);
-        }
-    }
-
-    async function updateRateLimit() {
-        const rate = parseFloat(rateLimitInput.value);
-        if (isNaN(rate) || rate < 0) {
-            alert('Please enter a valid rate limit (seconds)');
-            return;
-        }
-
-        try {
-            const response = await fetch(`${API_BASE_URL}/rate-limit`, {
+            const response = await fetch(`${window.APP_CONFIG.API_BASE_URL}/start`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({ rate_limit: rate })
+                mode: 'cors',
+                credentials: 'include'
             });
             const data = await response.json();
-            console.log('Rate limit updated:', data);
+            if (data.status === 'started') {
+                isRunning = true;
+                this.disabled = true;
+                document.getElementById('stopBtn').disabled = false;
+                document.getElementById('pauseBtn').disabled = false;
+            }
         } catch (error) {
-            console.error('Error updating rate limit:', error);
+            console.error('Error starting crawler:', error);
+            addLogEntry(`Error starting crawler: ${error.message}`);
         }
-    }
+    };
 
-    // Event Listeners
-    startBtn.addEventListener('click', startCrawler);
-    stopBtn.addEventListener('click', stopCrawler);
-    pauseBtn.addEventListener('click', togglePause);
-    rateLimitInput.addEventListener('change', updateRateLimit);
+    // Stop button
+    document.getElementById('stopBtn').onclick = async function() {
+        try {
+            const response = await fetch(`${window.APP_CONFIG.API_BASE_URL}/stop`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                mode: 'cors',
+                credentials: 'include'
+            });
+            const data = await response.json();
+            if (data.status === 'stopped') {
+                isRunning = false;
+                isPaused = false;
+                this.disabled = true;
+                document.getElementById('startBtn').disabled = false;
+                document.getElementById('pauseBtn').disabled = true;
+                document.getElementById('pauseBtn').textContent = 'Pause';
+            }
+        } catch (error) {
+            console.error('Error stopping crawler:', error);
+            addLogEntry(`Error stopping crawler: ${error.message}`);
+        }
+    };
 
-    // Initialize WebSocket connection
+    // Pause button
+    document.getElementById('pauseBtn').onclick = async function() {
+        try {
+            const response = await fetch(`${window.APP_CONFIG.API_BASE_URL}/pause`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                mode: 'cors',
+                credentials: 'include'
+            });
+            const data = await response.json();
+            if (data.status === 'paused' || data.status === 'resumed') {
+                isPaused = data.status === 'paused';
+                this.textContent = isPaused ? 'Resume' : 'Pause';
+            }
+        } catch (error) {
+            console.error('Error toggling pause:', error);
+            addLogEntry(`Error toggling pause: ${error.message}`);
+        }
+    };
+
+    // Reset button
+    document.getElementById('resetBtn').onclick = function() {
+        fetch(`${window.APP_CONFIG.API_BASE_URL}/reset`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            mode: 'cors',
+            credentials: 'include'
+        });
+        // Clear visualization
+        initVisualization();
+        // Clear logs
+        document.getElementById('logEntries').innerHTML = '';
+    };
+
+    // Initialize
     connectWebSocket();
+    initVisualization();
 });

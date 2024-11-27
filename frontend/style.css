@@ -1,0 +1,295 @@
+body {
+    font-family: Arial, sans-serif;
+    margin: 20px;
+    background-color: #f5f5f5;
+}
+
+.section {
+    background: white;
+    padding: 20px;
+    margin-bottom: 20px;
+    border-radius: 5px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+h2 {
+    margin-top: 0;
+    color: #333;
+}
+
+.controls {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.url-input {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.url-input label {
+    font-weight: bold;
+    min-width: 100px;
+}
+
+.url-input input {
+    padding: 8px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 14px;
+}
+
+.buttons {
+    display: flex;
+    gap: 10px;
+}
+
+button {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 4px;
+    background-color: #007bff;
+    color: white;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+button:hover {
+    background-color: #0056b3;
+}
+
+button:disabled {
+    background-color: #ccc;
+    cursor: not-allowed;
+}
+
+#stopBtn {
+    background-color: #dc3545;
+}
+
+#stopBtn:hover {
+    background-color: #c82333;
+}
+
+#pauseBtn {
+    background-color: #ffc107;
+    color: #000;
+}
+
+#pauseBtn:hover {
+    background-color: #e0a800;
+}
+
+#resetBtn {
+    background-color: #6c757d;
+}
+
+#resetBtn:hover {
+    background-color: #545b62;
+}
+
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 20px;
+}
+
+.stat-item {
+    background: #f8f9fa;
+    padding: 15px;
+    border-radius: 4px;
+    text-align: center;
+}
+
+.stat-label {
+    font-weight: bold;
+    color: #666;
+    margin-bottom: 5px;
+}
+
+.stat-value {
+    font-size: 24px;
+    color: #007bff;
+}
+
+.tree-wrapper {
+    min-width: min-content;
+    padding-bottom: 20px;
+}
+
+#tree-container {
+    width: 100%;
+    height: 500px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    overflow: auto;
+    padding: 20px;
+    font-family: -apple-system, system-ui, "Segoe UI", Helvetica, Arial, sans-serif;
+    background: white;
+    position: relative;
+}
+
+/* Customize scrollbar for better visibility */
+#tree-container::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+#tree-container::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 4px;
+}
+
+#tree-container::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 4px;
+}
+
+#tree-container::-webkit-scrollbar-thumb:hover {
+    background: #555;
+}
+
+/* Ensure long URLs don't break the layout */
+.node {
+    cursor: pointer;
+    margin: 4px 0;
+    display: flex;
+    flex-direction: column;
+    min-width: min-content;
+    white-space: nowrap;
+    position: relative;
+}
+
+.node-content {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-width: min-content;
+    height: 20px;
+    position: relative;
+}
+
+.node-content::before {
+    content: "";
+    position: absolute;
+    width: 6px;
+    height: 6px;
+    background-color: #999;
+    border-radius: 50%;
+    left: -12px;
+    top: 50%;
+    transform: translateY(-50%);
+}
+
+.node-content::after {
+    content: "";
+    position: absolute;
+    width: 10px;
+    height: 1px;
+    background-color: #999;
+    left: -11px;
+    top: 50%;
+    transform: translateY(-50%);
+}
+
+.node-children {
+    position: relative;
+    margin-left: 40px;
+    display: none;
+}
+
+.node-children::before {
+    content: "";
+    position: absolute;
+    left: -26px;
+    top: -10px;
+    bottom: 10px;
+    width: 1px;
+    background-color: #999;
+}
+
+.node.expanded > .node-children {
+    display: block;
+}
+
+.node-toggle {
+    width: 16px;
+    height: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    cursor: pointer;
+    color: #666;
+    user-select: none;
+    margin-left: -4px;
+}
+
+.node-label {
+    font-size: 14px;
+    color: #333;
+    text-overflow: ellipsis;
+    overflow: hidden;
+    max-width: 500px;
+}
+
+.node-label.root-label {
+    font-weight: 500;
+    color: #1a73e8;
+    max-width: none;
+    word-break: break-all;
+}
+
+.node-type {
+    font-size: 11px;
+    padding: 2px 6px;
+    border-radius: 12px;
+    font-weight: 500;
+    text-transform: uppercase;
+    flex-shrink: 0;
+    margin-left: 8px;
+}
+
+.node-type.pdf {
+    background-color: #ffebee;
+    color: #c62828;
+}
+
+.node-type.page {
+    background-color: #e8f5e9;
+    color: #2e7d32;
+}
+
+/* Hide the dot for root node */
+.node.root > .node-content::before,
+.node.root > .node-content::after {
+    display: none;
+}
+
+/* First level children should not show the vertical line above them */
+.node.root > .node-children::before {
+    top: 10px;
+}
+
+#log-container {
+    height: 300px;
+    overflow-y: auto;
+    background: #f8f9fa;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
+
+.log-entry {
+    font-family: monospace;
+    padding: 4px 0;
+    border-bottom: 1px solid #eee;
+}
+
+.link {
+    stroke: #999;
+    stroke-opacity: 0.6;
+    stroke-width: 1px;
+}
