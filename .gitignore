@@ -167,3 +167,12 @@ logs/
 .env
 .env.local
 node_modules/
+
+# Logs directory
+logs/
+
+# PDF storage
+pdfs/
+
+# Node modules
+node_modules/

@@ -1,103 +1,172 @@
-const API_BASE_URL = window.APP_CONFIG?.API_BASE_URL || 'http://localhost:8000';
-let ws;
+// Wait for the DOM to be fully loaded
+document.addEventListener('DOMContentLoaded', () => {
+    // DOM Elements
+    const startBtn = document.getElementById('startBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    const pauseBtn = document.getElementById('pauseBtn');
+    const rateLimitInput = document.getElementById('rateLimit');
+    const statusDisplay = document.getElementById('status');
+    const pagesCrawledDisplay = document.getElementById('pagesCrawled');
+    const pdfsFoundDisplay = document.getElementById('pdfsFound');
+    const pdfsDownloadedDisplay = document.getElementById('pdfsDownloaded');
+    const currentUrlDisplay = document.getElementById('currentUrl');
+    const logContainer = document.getElementById('logContainer');
+    const logEntries = document.getElementById('logEntries');
 
-// UI Elements
-const startBtn = document.getElementById('startBtn');
-const stopBtn = document.getElementById('stopBtn');
-const pauseBtn = document.getElementById('pauseBtn');
-const rateLimitInput = document.getElementById('rateLimit');
-const setRateBtn = document.getElementById('setRateBtn');
-const pagesCrawledSpan = document.getElementById('pagesCrawled');
-const pagesQueuedSpan = document.getElementById('pagesQueued');
-const currentUrlSpan = document.getElementById('currentUrl');
-const startTimeSpan = document.getElementById('startTime');
-const errorLogDiv = document.getElementById('errorLog');
+    // API Configuration
+    const API_BASE_URL = window.APP_CONFIG?.API_BASE_URL || 'http://localhost:8000';
+    const WS_URL = API_BASE_URL.replace('http', 'ws') + '/ws';
 
-// WebSocket Connection
-function connectWebSocket() {
-    const wsUrl = API_BASE_URL.replace('http', 'ws');
-    ws = new WebSocket(`${wsUrl}/ws`);
-    
-    ws.onmessage = (event) => {
-        const stats = JSON.parse(event.data);
-        updateStats(stats);
-    };
+    let ws = null;
+    let reconnectAttempts = 0;
+    const MAX_RECONNECT_ATTEMPTS = 5;
 
-    ws.onclose = () => {
-        setTimeout(connectWebSocket, 1000); // Reconnect after 1 second
-    };
-}
+    // Maximum number of log entries to keep
+    const MAX_LOG_ENTRIES = 1000;
 
-// Update Statistics
-function updateStats(stats) {
-    pagesCrawledSpan.textContent = stats.pages_crawled;
-    pagesQueuedSpan.textContent = stats.pages_queued;
-    currentUrlSpan.textContent = stats.current_url || '-';
-    
-    if (stats.start_time) {
-        const startTime = new Date(stats.start_time);
-        startTimeSpan.textContent = startTime.toLocaleString();
-    }
-
-    // Update error log
-    if (stats.errors && stats.errors.length > 0) {
-        const newErrors = stats.errors.filter(error => {
-            const errorElement = document.querySelector(`[data-error="${error}"]`);
-            return !errorElement;
-        });
-
-        newErrors.forEach(error => {
-            const errorDiv = document.createElement('div');
-            errorDiv.textContent = `[${new Date().toLocaleTimeString()}] ${error}`;
-            errorDiv.setAttribute('data-error', error);
-            errorDiv.className = 'text-red-600 mb-1';
-            errorLogDiv.appendChild(errorDiv);
-        });
-
-        // Auto-scroll to bottom
-        errorLogDiv.scrollTop = errorLogDiv.scrollHeight;
-    }
-}
-
-// API Calls
-async function makeRequest(endpoint, method = 'POST', body = null) {
-    try {
-        const options = {
-            method,
-            headers: {
-                'Content-Type': 'application/json',
-            },
-        };
-        
-        if (body) {
-            options.body = JSON.stringify(body);
+    // WebSocket Connection
+    function connectWebSocket() {
+        if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+            console.error('Max reconnection attempts reached');
+            return;
         }
 
-        const response = await fetch(`${API_BASE_URL}${endpoint}`, options);
-        return await response.json();
-    } catch (error) {
-        console.error('API Error:', error);
-        const errorDiv = document.createElement('div');
-        errorDiv.textContent = `[${new Date().toLocaleTimeString()}] API Error: ${error.message}`;
-        errorDiv.className = 'text-red-600 mb-1';
-        errorLogDiv.appendChild(errorDiv);
+        ws = new WebSocket(WS_URL);
+
+        ws.onopen = () => {
+            console.log('WebSocket connected');
+            reconnectAttempts = 0;
+        };
+
+        ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            if (data.type === 'log') {
+                addLogEntry(data.data);
+            } else {
+                updateStats(data);
+            }
+        };
+
+        ws.onclose = () => {
+            console.log('WebSocket disconnected');
+            setTimeout(() => {
+                reconnectAttempts++;
+                connectWebSocket();
+            }, 2000);
+        };
+
+        ws.onerror = (error) => {
+            console.error('WebSocket error:', error);
+        };
     }
-}
 
-// Event Listeners
-startBtn.addEventListener('click', () => makeRequest('/start'));
-stopBtn.addEventListener('click', () => makeRequest('/stop'));
-pauseBtn.addEventListener('click', async () => {
-    const result = await makeRequest('/pause');
-    pauseBtn.textContent = result.status === 'paused' ? 'Resume' : 'Pause';
-});
+    // Update UI with crawler stats
+    function updateStats(data) {
+        pagesCrawledDisplay.textContent = data.pages_crawled;
+        pdfsFoundDisplay.textContent = data.pdfs_found;
+        pdfsDownloadedDisplay.textContent = data.pdfs_downloaded || 0;
+        currentUrlDisplay.textContent = data.current_url || 'Not crawling';
+        statusDisplay.textContent = data.status;
 
-setRateBtn.addEventListener('click', () => {
-    const rate = parseFloat(rateLimitInput.value);
-    if (rate >= 0.1) {
-        makeRequest('/rate-limit', 'POST', { rate });
+        // Update button states
+        updateButtonStates(data.status);
     }
-});
 
-// Initialize WebSocket connection
-connectWebSocket();
+    // Update button states based on crawler status
+    function updateButtonStates(status) {
+        startBtn.disabled = status === 'running';
+        stopBtn.disabled = status === 'stopped';
+        pauseBtn.disabled = status === 'stopped';
+        
+        // Update pause button text
+        if (status === 'paused') {
+            pauseBtn.textContent = 'Resume';
+        } else {
+            pauseBtn.textContent = 'Pause';
+        }
+    }
+
+    function addLogEntry(logMessage) {
+        const entry = document.createElement('div');
+        entry.className = 'log-entry';
+        entry.textContent = logMessage;
+        
+        logEntries.appendChild(entry);
+        
+        // Remove old entries if we exceed the maximum
+        while (logEntries.children.length > MAX_LOG_ENTRIES) {
+            logEntries.removeChild(logEntries.firstChild);
+        }
+        
+        // Auto-scroll to bottom
+        logContainer.scrollTop = logContainer.scrollHeight;
+    }
+
+    // API Calls
+    async function startCrawler() {
+        try {
+            const response = await fetch(`${API_BASE_URL}/start`, {
+                method: 'POST'
+            });
+            const data = await response.json();
+            console.log('Crawler started:', data);
+        } catch (error) {
+            console.error('Error starting crawler:', error);
+        }
+    }
+
+    async function stopCrawler() {
+        try {
+            const response = await fetch(`${API_BASE_URL}/stop`, {
+                method: 'POST'
+            });
+            const data = await response.json();
+            console.log('Crawler stopped:', data);
+        } catch (error) {
+            console.error('Error stopping crawler:', error);
+        }
+    }
+
+    async function togglePause() {
+        try {
+            const response = await fetch(`${API_BASE_URL}/pause`, {
+                method: 'POST'
+            });
+            const data = await response.json();
+            console.log('Crawler pause toggled:', data);
+        } catch (error) {
+            console.error('Error toggling pause:', error);
+        }
+    }
+
+    async function updateRateLimit() {
+        const rate = parseFloat(rateLimitInput.value);
+        if (isNaN(rate) || rate < 0) {
+            alert('Please enter a valid rate limit (seconds)');
+            return;
+        }
+
+        try {
+            const response = await fetch(`${API_BASE_URL}/rate-limit`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ rate_limit: rate })
+            });
+            const data = await response.json();
+            console.log('Rate limit updated:', data);
+        } catch (error) {
+            console.error('Error updating rate limit:', error);
+        }
+    }
+
+    // Event Listeners
+    startBtn.addEventListener('click', startCrawler);
+    stopBtn.addEventListener('click', stopCrawler);
+    pauseBtn.addEventListener('click', togglePause);
+    rateLimitInput.addEventListener('change', updateRateLimit);
+
+    // Initialize WebSocket connection
+    connectWebSocket();
+});

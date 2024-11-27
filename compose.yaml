@@ -15,6 +15,7 @@ services:
       - FRONTEND_URL=http://localhost:8080
     volumes:
       - ./logs:/app/logs
+      - ./pdfs:/app/pdfs
     networks:
       - crawler-network
     # Ensure logs directory exists

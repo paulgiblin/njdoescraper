@@ -16,7 +16,7 @@ A web crawler application that maps the link and data hierarchy of the New Jerse
 - Docker
 - Docker Compose
 
-## Quick Start
+## Quick Start with Docker (Recommended)
 
 1. Clone the repository:
 ```bash
@@ -24,13 +24,34 @@ git clone [repository-url]
 cd njdoescraper
 ```
 
-2. Start the application using Docker Compose:
+2. Build and start the application using Docker Compose:
 ```bash
 docker-compose up --build
 ```
 
 3. Access the web interface:
 - Open your browser and navigate to `http://localhost:8080`
+
+## Manual Installation (Development)
+
+If you prefer to run without Docker, you'll need:
+- Python 3.7+
+- Node.js (for serving the frontend)
+
+1. Install Python dependencies:
+```bash
+cd backend
+pip install -r requirements.txt
+```
+
+2. Start the backend server:
+```bash
+python main.py
+```
+
+3. Open the frontend:
+- Navigate to the `frontend` directory
+- Open `index.html` in a web browser
 
 ## Usage
 
@@ -54,6 +75,11 @@ The application can be configured using environment variables:
 
 ### Frontend Environment Variables
 - `API_URL`: URL of the backend API service (default: http://localhost:8000)
+
+Other configurations:
+- Default rate limit: 1 second between requests
+- Starting URL: https://www.nj.gov/state/elections/election-information-results.shtml
+- Starting XPath: /html/body/div[8]/div/div/div[1]/div/div/table
 
 ## Project Structure
 
@@ -79,21 +105,6 @@ njdoescraper/
 - Real-time updates: WebSocket
 - Web scraping: BeautifulSoup4 and aiohttp
 - Containerization: Docker with multi-container setup
-
-## Development
-
-To run the application in development mode:
-
-1. Start the backend:
-```bash
-cd backend
-pip install -r requirements.txt
-python main.py
-```
-
-2. Open the frontend:
-- Navigate to the `frontend` directory
-- Open `index.html` in a web browser
 
 ## Logs
 

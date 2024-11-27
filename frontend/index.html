@@ -4,52 +4,110 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>NJ Elections Web Crawler</title>
-    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="config.js"></script>
+    <script src="main.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .controls {
+            margin-bottom: 20px;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+        }
+        .stats {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #e9ecef;
+            border-radius: 4px;
+        }
+        button {
+            padding: 8px 16px;
+            margin-right: 10px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            background-color: #007bff;
+            color: white;
+        }
+        button:disabled {
+            background-color: #6c757d;
+            cursor: not-allowed;
+        }
+        button:hover:not(:disabled) {
+            background-color: #0056b3;
+        }
+        input {
+            padding: 6px;
+            border: 1px solid #ced4da;
+            border-radius: 4px;
+            margin-right: 10px;
+        }
+        .stat-item {
+            margin: 10px 0;
+        }
+        .current-url {
+            word-break: break-all;
+            margin-top: 10px;
+            padding: 10px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+        }
+        .log-container {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #1e1e1e;
+            border-radius: 4px;
+            color: #fff;
+            height: 300px;
+            overflow-y: auto;
+        }
+        .log-entry {
+            font-family: monospace;
+            margin: 2px 0;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+    </style>
 </head>
-<body class="bg-gray-100">
-    <div class="container mx-auto px-4 py-8">
-        <h1 class="text-3xl font-bold mb-8">NJ Elections Web Crawler</h1>
+<body>
+    <div class="container">
+        <h1>NJ Elections Web Crawler</h1>
         
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <!-- Control Panel -->
-            <div class="bg-white p-6 rounded-lg shadow-md">
-                <h2 class="text-xl font-semibold mb-4">Control Panel</h2>
-                <div class="space-y-4">
-                    <div class="flex space-x-4">
-                        <button id="startBtn" class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600">Start</button>
-                        <button id="stopBtn" class="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600">Stop</button>
-                        <button id="pauseBtn" class="bg-yellow-500 text-white px-4 py-2 rounded hover:bg-yellow-600">Pause</button>
-                    </div>
-                    <div class="flex items-center space-x-4">
-                        <label class="text-sm font-medium">Rate Limit (seconds):</label>
-                        <input type="number" id="rateLimit" min="0.1" step="0.1" value="1.0" 
-                               class="border rounded px-2 py-1 w-24">
-                        <button id="setRateBtn" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Set Rate</button>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Statistics -->
-            <div class="bg-white p-6 rounded-lg shadow-md">
-                <h2 class="text-xl font-semibold mb-4">Statistics</h2>
-                <div class="space-y-2">
-                    <p>Pages Crawled: <span id="pagesCrawled">0</span></p>
-                    <p>Pages Queued: <span id="pagesQueued">0</span></p>
-                    <p>Current URL: <span id="currentUrl" class="text-sm text-gray-600">-</span></p>
-                    <p>Start Time: <span id="startTime">-</span></p>
-                </div>
+        <div class="controls">
+            <h2>Controls</h2>
+            <button id="startBtn">Start</button>
+            <button id="stopBtn">Stop</button>
+            <button id="pauseBtn">Pause</button>
+            <div style="margin-top: 10px;">
+                <label for="rateLimit">Rate Limit (seconds):</label>
+                <input type="number" id="rateLimit" value="1" min="0" step="0.1">
             </div>
         </div>
 
-        <!-- Crawler Log -->
-        <div class="mt-6 bg-white p-6 rounded-lg shadow-md">
-            <h2 class="text-xl font-semibold mb-4">Crawler Log</h2>
-            <div id="errorLog" class="bg-gray-100 p-4 rounded h-64 overflow-y-auto font-mono text-sm">
-            </div>
+        <div class="stats">
+            <h2>Crawler Statistics</h2>
+            <p>Status: <span id="status">Stopped</span></p>
+            <p>Pages Crawled: <span id="pagesCrawled">0</span></p>
+            <p>PDFs Found: <span id="pdfsFound">0</span></p>
+            <p>PDFs Downloaded: <span id="pdfsDownloaded">0</span></p>
+            <p>Current URL: <span id="currentUrl">None</span></p>
+        </div>
+        
+        <div class="log-container" id="logContainer">
+            <div id="logEntries"></div>
         </div>
     </div>
-    <script src="main.js"></script>
 </body>
 </html>
