@@ -1,6 +1,4 @@
 let ws;
-let isRunning = false;
-let isPaused = false;
 
 // Tree visualization state
 let treeData = { nodes: [], links: [] };
@@ -192,25 +190,17 @@ function updateStats(stats) {
     document.getElementById('pdfsFound').textContent = stats.pdfs_found;
     document.getElementById('pdfsDownloaded').textContent = stats.pdfs_downloaded;
     document.getElementById('currentUrl').textContent = stats.current_url || 'None';
+    
+    // Update button states based on crawler status
+    updateButtonStates(stats.status);
 }
 
 function updateButtonStates(status) {
     const startBtn = document.getElementById('startBtn');
     const stopBtn = document.getElementById('stopBtn');
-    const pauseBtn = document.getElementById('pauseBtn');
 
-    startBtn.disabled = status === 'running' || status === 'paused';
+    startBtn.disabled = status === 'running';
     stopBtn.disabled = status === 'stopped';
-    pauseBtn.disabled = status === 'stopped';
-
-    // Update pause button text
-    if (status === 'paused') {
-        pauseBtn.textContent = 'Resume';
-        isPaused = true;
-    } else {
-        pauseBtn.textContent = 'Pause';
-        isPaused = false;
-    }
 }
 
 function addLogEntry(message) {
@@ -264,23 +254,12 @@ document.addEventListener('DOMContentLoaded', function() {
             const data = await response.json();
             console.log('Start response:', data);  // Debug log
             
-            if (data.status === 'started') {
-                isRunning = true;
-                this.disabled = true;
-                document.getElementById('stopBtn').disabled = false;
-                document.getElementById('pauseBtn').disabled = false;
-                addLogEntry('Crawler started successfully');
-            } else {
+            if (data.status !== 'started') {
                 throw new Error(data.message || 'Unknown error starting crawler');
             }
         } catch (error) {
             console.error('Error starting crawler:', error);
             addLogEntry(`Error starting crawler: ${error.message}`);
-            // Reset button states
-            isRunning = false;
-            this.disabled = false;
-            document.getElementById('stopBtn').disabled = true;
-            document.getElementById('pauseBtn').disabled = true;
         }
     };
 
@@ -294,52 +273,13 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             });
             const data = await response.json();
-            if (data.status === 'stopped') {
-                isRunning = false;
-                isPaused = false;
-                this.disabled = true;
-                document.getElementById('startBtn').disabled = false;
-                document.getElementById('pauseBtn').disabled = true;
-                document.getElementById('pauseBtn').textContent = 'Pause';
+            if (data.status !== 'stopped') {
+                throw new Error(data.message || 'Unknown error stopping crawler');
             }
         } catch (error) {
             console.error('Error stopping crawler:', error);
             addLogEntry(`Error stopping crawler: ${error.message}`);
         }
-    };
-
-    // Pause button
-    document.getElementById('pauseBtn').onclick = async function() {
-        try {
-            const response = await fetch(`${window.location.origin}${window.APP_CONFIG.API_BASE_URL}/pause`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                }
-            });
-            const data = await response.json();
-            if (data.status === 'paused' || data.status === 'resumed') {
-                isPaused = data.status === 'paused';
-                this.textContent = isPaused ? 'Resume' : 'Pause';
-            }
-        } catch (error) {
-            console.error('Error toggling pause:', error);
-            addLogEntry(`Error toggling pause: ${error.message}`);
-        }
-    };
-
-    // Reset button
-    document.getElementById('resetBtn').onclick = function() {
-        fetch(`${window.location.origin}${window.APP_CONFIG.API_BASE_URL}/reset`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            }
-        });
-        // Clear visualization
-        initVisualization();
-        // Clear logs
-        document.getElementById('logEntries').innerHTML = '';
     };
 
     // Initialize

@@ -165,17 +165,6 @@ async def stop_crawler():
     crawler.stop()
     return {"status": "stopped"}
 
-@app.post("/pause")
-async def pause_crawler():
-    if crawler.running:
-        if crawler.paused:
-            crawler.resume()
-            return {"status": "resumed"}
-        else:
-            crawler.pause()
-            return {"status": "paused"}
-    return {"status": "not_running"}
-
 @app.post("/rate-limit")
 async def set_rate_limit(rate_limit: dict):
     crawler.set_rate_limit(rate_limit["delay"])

@@ -35,7 +35,6 @@ class ElectionCrawler:
     def reset_state(self):
         """Reset all crawler state variables to their initial values."""
         self.running = False
-        self.paused = False
         self.visited_urls = set()
         self.pdf_urls = set()
         self.link_tree = {
@@ -155,7 +154,7 @@ class ElectionCrawler:
         return links
 
     async def crawl_url(self, url, session):
-        if url in self.visited_urls or not self.running or self.paused:
+        if url in self.visited_urls or not self.running:
             return
 
         # Mark as visited before processing to prevent duplicate processing
@@ -193,7 +192,7 @@ class ElectionCrawler:
             # Process PDFs found on this page
             new_pdfs = self.pdf_urls - set(self.visited_urls)
             for pdf_url in new_pdfs:
-                if self.running and not self.paused:
+                if self.running:
                     # Add PDF to link tree
                     if not any(node["id"] == pdf_url for node in self.link_tree["nodes"]):
                         node = {
@@ -230,7 +229,7 @@ class ElectionCrawler:
             
             # Process each new link
             for link in links:
-                if (self.running and not self.paused and 
+                if (self.running and 
                     link not in self.visited_urls and 
                     not link.endswith('.pdf')):
                     # Add link to link tree
@@ -261,25 +260,15 @@ class ElectionCrawler:
             except Exception as e:
                 self.logger.error(f"Error in crawler: {str(e)}")
             finally:
-                self.running = False
-                self.stats["status"] = "stopped"
-                self.logger.info("Crawler stopped")
+                if self.running:  
+                    self.running = False
+                    self.stats["status"] = "stopped"
+                    self.logger.info("Crawling completed")
 
     def stop(self):
         self.running = False
         self.stats["status"] = "stopped"
-        self.logger.info("Crawler stopped")
-
-    def pause(self):
-        self.paused = True
-        self.stats["status"] = "paused"
-        self.logger.info("Crawler paused")
-
-    def resume(self):
-        self.paused = False
-        if self.running:
-            self.stats["status"] = "running"
-        self.logger.info("Crawler resumed")
+        self.logger.info("Crawler stopped by user")
 
     def set_rate_limit(self, rate_limit):
         self.rate_limit = rate_limit

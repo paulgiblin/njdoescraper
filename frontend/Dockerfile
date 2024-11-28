@@ -1,15 +1,5 @@
 FROM nginx:alpine
 
-# Create a script to generate config.js with proper environment variables
-RUN echo '#!/bin/sh' > /docker-entrypoint.d/30-config.sh && \
-    echo 'cat > /usr/share/nginx/html/config.js << EOF' >> /docker-entrypoint.d/30-config.sh && \
-    echo 'window.APP_CONFIG = {' >> /docker-entrypoint.d/30-config.sh && \
-    echo '    API_BASE_URL: "${API_URL}",' >> /docker-entrypoint.d/30-config.sh && \
-    echo '    WS_BASE_URL: "${WS_URL}"' >> /docker-entrypoint.d/30-config.sh && \
-    echo '};' >> /docker-entrypoint.d/30-config.sh && \
-    echo 'EOF' >> /docker-entrypoint.d/30-config.sh && \
-    chmod +x /docker-entrypoint.d/30-config.sh
-
 # Copy the frontend files
 COPY . /usr/share/nginx/html
 

@@ -29,9 +29,6 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8080:80"
-    environment:
-      - API_URL=/api
-      - WS_URL=/ws
     depends_on:
       - backend
     networks:
