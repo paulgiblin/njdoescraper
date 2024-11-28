@@ -39,7 +39,12 @@ class ElectionCrawler:
         self.visited_urls = set()
         self.pdf_urls = set()
         self.link_tree = {
-            "nodes": [],
+            "nodes": [{
+                "id": self.start_url,
+                "type": "page",
+                "name": "Start Page",
+                "status": "pending"
+            }],
             "links": []
         }
         self.pdf_states = {}  # Tracks states: "queued", "downloaded", "failed"
@@ -48,7 +53,8 @@ class ElectionCrawler:
             "pdfs_found": 0,
             "pdfs_downloaded": 0,
             "current_url": "",
-            "status": "stopped"
+            "status": "stopped",
+            "link_tree": self.link_tree
         }
 
     async def download_pdf(self, url, session):
@@ -157,13 +163,26 @@ class ElectionCrawler:
         self.stats["current_url"] = url
         self.stats["pages_crawled"] += 1
         
-        # Add the current URL to the link tree if not exists
-        if not any(node["id"] == url for node in self.link_tree["nodes"]):
-            self.link_tree["nodes"].append({
+        # Update node status in link tree
+        for node in self.link_tree["nodes"]:
+            if node["id"] == url:
+                node["status"] = "visited"
+                break
+        else:
+            # Add the current URL to the link tree if not exists
+            node = {
                 "id": url,
                 "type": "page",
-                "name": os.path.basename(urlparse(url).path)
-            })
+                "name": os.path.basename(urlparse(url).path) or "Home",
+                "status": "visited"
+            }
+            self.link_tree["nodes"].append(node)
+        
+        # Make a deep copy of link_tree to ensure it's properly updated in stats
+        self.stats["link_tree"] = {
+            "nodes": self.link_tree["nodes"].copy(),
+            "links": self.link_tree["links"].copy()
+        }
         
         self.logger.info(f"Crawling: {url}")
         
@@ -175,15 +194,57 @@ class ElectionCrawler:
             new_pdfs = self.pdf_urls - set(self.visited_urls)
             for pdf_url in new_pdfs:
                 if self.running and not self.paused:
+                    # Add PDF to link tree
+                    if not any(node["id"] == pdf_url for node in self.link_tree["nodes"]):
+                        node = {
+                            "id": pdf_url,
+                            "type": "pdf",
+                            "name": os.path.basename(urlparse(pdf_url).path),
+                            "status": "queued"
+                        }
+                        self.link_tree["nodes"].append(node)
+                        self.link_tree["links"].append({
+                            "source": url,
+                            "target": pdf_url
+                        })
+                        # Update stats with a deep copy of the new link_tree
+                        self.stats["link_tree"] = {
+                            "nodes": self.link_tree["nodes"].copy(),
+                            "links": self.link_tree["links"].copy()
+                        }
+                    
                     await asyncio.sleep(self.rate_limit)
                     await self.download_pdf(pdf_url, session)
-                    self.visited_urls.add(pdf_url)
+                    
+                    # Update PDF node status after download
+                    for node in self.link_tree["nodes"]:
+                        if node["id"] == pdf_url:
+                            node["status"] = self.pdf_states.get(pdf_url, "failed")
+                            break
+                    
+                    # Update stats with the latest link_tree
+                    self.stats["link_tree"] = {
+                        "nodes": self.link_tree["nodes"].copy(),
+                        "links": self.link_tree["links"].copy()
+                    }
             
-            # Process each new link (only if it's not a PDF and not visited)
+            # Process each new link
             for link in links:
                 if (self.running and not self.paused and 
                     link not in self.visited_urls and 
                     not link.endswith('.pdf')):
+                    # Add link to link tree
+                    if not any(node["id"] == link for node in self.link_tree["nodes"]):
+                        self.link_tree["links"].append({
+                            "source": url,
+                            "target": link
+                        })
+                        # Update stats with the new link_tree
+                        self.stats["link_tree"] = {
+                            "nodes": self.link_tree["nodes"].copy(),
+                            "links": self.link_tree["links"].copy()
+                        }
+                    
                     await asyncio.sleep(self.rate_limit)
                     await self.crawl_url(link, session)
 

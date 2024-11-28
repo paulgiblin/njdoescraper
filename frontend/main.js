@@ -127,7 +127,8 @@ function updateVisualization(data) {
 
 function connectWebSocket() {
     try {
-        const wsUrl = window.APP_CONFIG.WS_BASE_URL.replace('http://', 'ws://').replace('https://', 'wss://') + '/ws';
+        // WS_BASE_URL is already the complete WebSocket URL
+        const wsUrl = window.APP_CONFIG.WS_BASE_URL;
         console.log('Connecting to WebSocket:', wsUrl);
         ws = new WebSocket(wsUrl);
         
@@ -137,22 +138,40 @@ function connectWebSocket() {
         };
 
         ws.onmessage = function(event) {
-            const data = JSON.parse(event.data);
-            if (data.type === 'stats') {
-                updateStats(data.stats);
-                if (data.stats.link_tree) {
-                    updateVisualization(data.stats.link_tree);
+            console.log('Raw WebSocket message:', event.data);
+            console.log('Message type:', typeof event.data);
+            console.log('First character code:', event.data.charCodeAt(0));
+            try {
+                const data = JSON.parse(event.data);
+                console.log('Parsed WebSocket data:', data);
+                if (data.type === 'stats') {
+                    console.log('Updating stats:', data.stats);
+                    updateStats(data.stats);
+                    if (data.stats && data.stats.link_tree && 
+                        data.stats.link_tree.nodes && data.stats.link_tree.links) {
+                        console.log('Updating visualization with link tree:', data.stats.link_tree);
+                        updateVisualization(data.stats.link_tree);
+                    } else {
+                        console.log('Invalid or missing link_tree data:', data.stats);
+                    }
+                } else if (data.type === 'log') {
+                    console.log('Adding log entry:', data.message);
+                    addLogEntry(data.message);
                 }
-            } else if (data.type === 'log') {
-                addLogEntry(data.message);
+            } catch (error) {
+                console.error('Error processing WebSocket message:', error);
+                console.error('Failed message content:', event.data);
+                addLogEntry(`Error processing server message: ${error.message}`);
             }
         };
 
         ws.onclose = function(event) {
             console.log('WebSocket connection closed:', event.code, event.reason);
             addLogEntry(`Disconnected from server (code: ${event.code})`);
-            // Attempt to reconnect after a delay
-            setTimeout(connectWebSocket, 5000);
+            // Only attempt to reconnect if the closure wasn't intentional
+            if (event.code !== 1000 && event.code !== 1001) {
+                setTimeout(connectWebSocket, 5000);
+            }
         };
 
         ws.onerror = function(error) {
@@ -226,37 +245,53 @@ document.addEventListener('DOMContentLoaded', function() {
     // Start button
     document.getElementById('startBtn').onclick = async function() {
         try {
-            const response = await fetch(`${window.APP_CONFIG.API_BASE_URL}/start`, {
+            const response = await fetch(`${window.location.origin}${window.APP_CONFIG.API_BASE_URL}/start`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
-                },
-                mode: 'cors',
-                credentials: 'include'
+                }
             });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            
+            const contentType = response.headers.get("content-type");
+            if (!contentType || !contentType.includes("application/json")) {
+                throw new TypeError("Response was not JSON");
+            }
+            
             const data = await response.json();
+            console.log('Start response:', data);  // Debug log
+            
             if (data.status === 'started') {
                 isRunning = true;
                 this.disabled = true;
                 document.getElementById('stopBtn').disabled = false;
                 document.getElementById('pauseBtn').disabled = false;
+                addLogEntry('Crawler started successfully');
+            } else {
+                throw new Error(data.message || 'Unknown error starting crawler');
             }
         } catch (error) {
             console.error('Error starting crawler:', error);
             addLogEntry(`Error starting crawler: ${error.message}`);
+            // Reset button states
+            isRunning = false;
+            this.disabled = false;
+            document.getElementById('stopBtn').disabled = true;
+            document.getElementById('pauseBtn').disabled = true;
         }
     };
 
     // Stop button
     document.getElementById('stopBtn').onclick = async function() {
         try {
-            const response = await fetch(`${window.APP_CONFIG.API_BASE_URL}/stop`, {
+            const response = await fetch(`${window.location.origin}${window.APP_CONFIG.API_BASE_URL}/stop`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
-                },
-                mode: 'cors',
-                credentials: 'include'
+                }
             });
             const data = await response.json();
             if (data.status === 'stopped') {
@@ -276,13 +311,11 @@ document.addEventListener('DOMContentLoaded', function() {
     // Pause button
     document.getElementById('pauseBtn').onclick = async function() {
         try {
-            const response = await fetch(`${window.APP_CONFIG.API_BASE_URL}/pause`, {
+            const response = await fetch(`${window.location.origin}${window.APP_CONFIG.API_BASE_URL}/pause`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
-                },
-                mode: 'cors',
-                credentials: 'include'
+                }
             });
             const data = await response.json();
             if (data.status === 'paused' || data.status === 'resumed') {
@@ -297,13 +330,11 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Reset button
     document.getElementById('resetBtn').onclick = function() {
-        fetch(`${window.APP_CONFIG.API_BASE_URL}/reset`, {
+        fetch(`${window.location.origin}${window.APP_CONFIG.API_BASE_URL}/reset`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
-            },
-            mode: 'cors',
-            credentials: 'include'
+            }
         });
         // Clear visualization
         initVisualization();
